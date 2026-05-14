@@ -1,0 +1,37 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: fitsense
+      POSTGRES_USER: fitsense
+      POSTGRES_PASSWORD: fitsense
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+
+  ai-service:
+    build: ./ai-services-fastapi
+    ports:
+      - "8000:8000"
+
+  backend:
+    build: ./backend-springboot
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - ai-service
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend

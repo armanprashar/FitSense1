@@ -1,0 +1,62 @@
+package com.fitsense.backend.controller;
+
+import com.fitsense.backend.dto.AuthDtos.*;
+import com.fitsense.backend.entity.User;
+import com.fitsense.backend.repo.UserRepository;
+import com.fitsense.backend.security.JwtUtil;
+import com.fitsense.backend.service.AiClientService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/auth")
+@CrossOrigin(origins = "*")
+public class AuthController {
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtUtil jwtUtil;
+    private final AiClientService aiClient;
+
+    public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtil jwtUtil, AiClientService aiClient) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtUtil = jwtUtil;
+        this.aiClient = aiClient;
+    }
+
+    @PostMapping("/register")
+    public AuthResponse register(@Valid @RequestBody RegisterRequest req) {
+        if (userRepository.findByEmail(req.email()).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists");
+        }
+        User user = new User();
+        user.setName(req.name());
+        user.setEmail(req.email());
+        user.setPassword(passwordEncoder.encode(req.password()));
+        user.setAge(req.age());
+        user.setWeight(req.weight());
+        user.setHeight(req.height());
+        user.setGender(req.gender());
+        double bmi = req.weight() / Math.pow(req.height() / 100.0, 2);
+        Map<String, Object> profile = aiClient.post("/profile", Map.of("age", req.age(), "bmi", bmi, "gender", req.gender()));
+        user.setFitnessLevel(String.valueOf(profile.get("fitness_level")));
+        userRepository.save(user);
+        String token = jwtUtil.generateToken(user.getEmail());
+        return new AuthResponse(token, user.getEmail(), user.getName());
+    }
+
+    @PostMapping("/login")
+    public AuthResponse login(@Valid @RequestBody LoginRequest req) {
+        User user = userRepository.findByEmail(req.email())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+        if (!passwordEncoder.matches(req.password(), user.getPassword())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+        return new AuthResponse(jwtUtil.generateToken(user.getEmail()), user.getEmail(), user.getName());
+    }
+}

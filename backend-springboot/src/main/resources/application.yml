@@ -1,0 +1,17 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/fitsense
+    username: fitsense
+    password: "@Arman2467A"
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+app:
+  jwtSecret: "replace-with-strong-production-secret-key"
+  jwtExpirationMs: 86400000
+  aiBaseUrl: "http://localhost:8000"
