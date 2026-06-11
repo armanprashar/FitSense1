@@ -11,7 +11,7 @@ import com.fitsense.backend.entity.User;
 public interface DailyMetricRepository extends JpaRepository<DailyMetric, Long> {
 
     // Fetches up to 30 days of history for the charts
-    List<DailyMetric> findTop30ByUserOrderByMetricDateDesc(User user);
+    List<DailyMetric> findTop30ByUserOrderByMetricDateDescIdDesc(User user);
 
     // Fetches the single most recent metric
     Optional<DailyMetric> findTop1ByUserOrderByMetricDateDesc(User user);

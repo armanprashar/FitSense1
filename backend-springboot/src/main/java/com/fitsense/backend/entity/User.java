@@ -18,6 +18,13 @@ public class User {
     private Double height;
     private String gender;
     private String fitnessLevel;
+    private String fitnessGoal;
+    private String activityLevel;
+    private String experienceLevel;
+    private Integer workoutDuration;
+    private Integer targetDaysPerWeek;
+    private String injuryLimitation;
+    private Boolean safetyConfirmed;
 
     public Long getId() { return id; }
     public String getEmail() { return email; }
@@ -36,4 +43,18 @@ public class User {
     public void setGender(String gender) { this.gender = gender; }
     public String getFitnessLevel() { return fitnessLevel; }
     public void setFitnessLevel(String fitnessLevel) { this.fitnessLevel = fitnessLevel; }
+    public String getFitnessGoal() { return fitnessGoal; }
+    public void setFitnessGoal(String fitnessGoal) { this.fitnessGoal = fitnessGoal; }
+    public String getActivityLevel() { return activityLevel; }
+    public void setActivityLevel(String activityLevel) { this.activityLevel = activityLevel; }
+    public String getExperienceLevel() { return experienceLevel; }
+    public void setExperienceLevel(String experienceLevel) { this.experienceLevel = experienceLevel; }
+    public Integer getWorkoutDuration() { return workoutDuration; }
+    public void setWorkoutDuration(Integer workoutDuration) { this.workoutDuration = workoutDuration; }
+    public Integer getTargetDaysPerWeek() { return targetDaysPerWeek; }
+    public void setTargetDaysPerWeek(Integer targetDaysPerWeek) { this.targetDaysPerWeek = targetDaysPerWeek; }
+    public String getInjuryLimitation() { return injuryLimitation; }
+    public void setInjuryLimitation(String injuryLimitation) { this.injuryLimitation = injuryLimitation; }
+    public Boolean getSafetyConfirmed() { return safetyConfirmed; }
+    public void setSafetyConfirmed(Boolean safetyConfirmed) { this.safetyConfirmed = safetyConfirmed; }
 }

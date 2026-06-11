@@ -1,24 +1,344 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api, { setAuthToken } from "./api/client";
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  BarChart, Bar, CartesianGrid
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  CartesianGrid
 } from "recharts";
 
 const initialProfile = {
-  name: "", email: "", password: "", age: 25, weight: 70, height: 170, gender: "male"
+  name: "",
+  email: "",
+  password: "",
+  age: 25,
+  weight: 70,
+  height: 170,
+  gender: "male",
+  fitnessGoal: "fat_loss",
+  activityLevel: "moderate",
+  experienceLevel: "beginner",
+  workoutDuration: "30",
+  targetDaysPerWeek: "4",
+  injuryLimitation: "none",
+  safetyConfirmed: false
 };
+
+const choiceGroups = {
+  gender: [
+    { value: "male", label: "Male" },
+    { value: "female", label: "Female" },
+    { value: "other", label: "Other" }
+  ],
+  fitnessGoal: [
+    { value: "fat_loss", label: "Fat loss" },
+    { value: "muscle_gain", label: "Muscle gain" },
+    { value: "endurance", label: "Endurance" },
+    { value: "general_fitness", label: "General fitness" },
+    { value: "recovery_mobility", label: "Recovery" }
+  ],
+  activityLevel: [
+    { value: "sedentary", label: "Sedentary" },
+    { value: "light", label: "Light" },
+    { value: "moderate", label: "Moderate" },
+    { value: "very_active", label: "Very active" }
+  ],
+  experienceLevel: [
+    { value: "beginner", label: "Beginner" },
+    { value: "intermediate", label: "Intermediate" },
+    { value: "advanced", label: "Advanced" }
+  ],
+  workoutDuration: [
+    { value: "15", label: "15 min" },
+    { value: "30", label: "30 min" },
+    { value: "45", label: "45 min" },
+    { value: "60", label: "60 min" }
+  ],
+  targetDaysPerWeek: [
+    { value: "3", label: "3 days" },
+    { value: "4", label: "4 days" },
+    { value: "5", label: "5 days" },
+    { value: "6", label: "6 days" }
+  ],
+  injuryLimitation: [
+    { value: "none", label: "None" },
+    { value: "knee_pain", label: "Knee pain" },
+    { value: "back_pain", label: "Back pain" },
+    { value: "shoulder_pain", label: "Shoulder pain" },
+    { value: "other", label: "Other" }
+  ]
+};
+
+const metrics = [
+  {
+    key: "sleepQuality",
+    label: "Sleep Quality",
+    range: "1-10",
+    min: 1,
+    max: 10,
+    accent: "from-indigo-400 to-sky-400",
+    copy: "Recovery depth"
+  },
+  {
+    key: "energyLevel",
+    label: "Energy Level",
+    range: "1-10",
+    min: 1,
+    max: 10,
+    accent: "from-amber-300 to-lime-300",
+    copy: "Training drive"
+  },
+  {
+    key: "heartRate",
+    label: "Resting Heart Rate",
+    range: "bpm",
+    min: 40,
+    max: 120,
+    accent: "from-rose-400 to-orange-300",
+    copy: "Cardio signal"
+  },
+  {
+    key: "stressLevel",
+    label: "Stress Level",
+    range: "1-10",
+    min: 1,
+    max: 10,
+    accent: "from-cyan-300 to-teal-300",
+    copy: "Load pressure"
+  },
+  {
+    key: "sorenessLevel",
+    label: "Muscle Soreness",
+    range: "1-10",
+    min: 1,
+    max: 10,
+    accent: "from-fuchsia-400 to-pink-300",
+    copy: "Tissue fatigue"
+  }
+];
+
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem("userProfile")) || null;
+  } catch {
+    return null;
+  }
+};
+
+const getChartUserKey = (user) => user?.email?.trim().toLowerCase() || null;
+
+const getStoredChartBaselines = () => {
+  try {
+    return JSON.parse(localStorage.getItem("chartRefreshBaselines")) || {};
+  } catch {
+    return {};
+  }
+};
+
+const getStoredChartBaseline = (user) => {
+  const userKey = getChartUserKey(user);
+  if (!userKey) return null;
+
+  const baselines = getStoredChartBaselines();
+  if (baselines[userKey]) return baselines[userKey];
+
+  try {
+    return JSON.parse(localStorage.getItem("chartRefreshBaseline") || "null");
+  } catch {
+    return null;
+  }
+};
+
+const saveStoredChartBaseline = (user, baseline) => {
+  const userKey = getChartUserKey(user);
+  if (!userKey) return;
+
+  const baselines = getStoredChartBaselines();
+  baselines[userKey] = baseline;
+  localStorage.setItem("chartRefreshBaselines", JSON.stringify(baselines));
+  localStorage.removeItem("chartRefreshBaseline");
+};
+
+const getChoiceLabel = (group, value, fallback = "Not set") => {
+  return choiceGroups[group].find((option) => option.value === value)?.label || fallback;
+};
+
+const getMetricDateSortValue = (metric) => {
+  if (metric?.metricDate) {
+    const parsedDate = Date.parse(metric.metricDate);
+    if (!Number.isNaN(parsedDate)) return parsedDate;
+  }
+
+  return null;
+};
+
+const getMetricIdSortValue = (metric) => {
+  if (metric?.id !== undefined && metric?.id !== null) {
+    const parsedId = Number(metric.id);
+    if (!Number.isNaN(parsedId)) return parsedId;
+  }
+
+  return null;
+};
+
+const isMetricAfterChartBaseline = (metric, baseline) => {
+  if (!baseline) return true;
+
+  const metricDate = getMetricDateSortValue(metric);
+  const baselineDate = getMetricDateSortValue(baseline);
+  if (metricDate !== null && baselineDate !== null && metricDate !== baselineDate) {
+    return metricDate > baselineDate;
+  }
+
+  const metricId = getMetricIdSortValue(metric);
+  const baselineId = getMetricIdSortValue(baseline);
+  if (metricId !== null && baselineId !== null) {
+    return metricId > baselineId;
+  }
+
+  return false;
+};
+
+const cx = (...classes) => classes.filter(Boolean).join(" ");
+
+function BrandMark({ compact = false }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-sm font-black text-zinc-950 shadow-[0_18px_50px_rgba(255,255,255,0.18)]">
+        FS
+      </div>
+      {!compact && (
+        <div>
+          <p className="text-lg font-black tracking-tight text-white">FitSense</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.26em] text-cyan-200/70">AI Fitness OS</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Panel({ children, className = "" }) {
+  return (
+    <section className={cx("rounded-[2rem] border border-white/10 bg-white/[0.075] shadow-2xl shadow-black/25 backdrop-blur-2xl", className)}>
+      {children}
+    </section>
+  );
+}
+
+function Field({ label, children, hint }) {
+  return (
+    <div className="space-y-2">
+      <label className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-400">{label}</label>
+      {children}
+      {hint && <p className="text-xs leading-5 text-zinc-500">{hint}</p>}
+    </div>
+  );
+}
+
+function TextInput({ value, type = "text", min, max, onChange, placeholder }) {
+  return (
+    <input
+      value={value}
+      type={type}
+      min={min}
+      max={max}
+      onChange={onChange}
+      placeholder={placeholder}
+      className="h-12 w-full rounded-2xl border border-white/10 bg-zinc-950/70 px-4 text-sm font-semibold text-white outline-none transition placeholder:text-zinc-600 focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-300/10"
+    />
+  );
+}
+
+function ChoiceGrid({ options, value, onChange, columns = "grid-cols-2 sm:grid-cols-3" }) {
+  return (
+    <div className={cx("grid gap-2", columns)}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          className={cx(
+            "min-h-11 rounded-2xl border px-3 py-2 text-sm font-bold transition",
+            value === option.value
+              ? "border-cyan-200 bg-cyan-200 text-zinc-950 shadow-lg shadow-cyan-500/20"
+              : "border-white/10 bg-white/[0.045] text-zinc-300 hover:border-white/25 hover:bg-white/10"
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MetricSlider({ metric, value, onChange }) {
+  const percentage = ((value - metric.min) / (metric.max - metric.min)) * 100;
+
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-zinc-950/45 p-5">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-base font-black text-white">{metric.label}</p>
+          <p className="mt-1 text-sm text-zinc-400">{metric.copy}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-3xl font-black tracking-tight text-white">{value}</p>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">{metric.range}</p>
+        </div>
+      </div>
+      <div className="relative">
+        <div className="absolute left-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-white/10" style={{ width: "100%" }} />
+        <div
+          className={cx("absolute left-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-gradient-to-r", metric.accent)}
+          style={{ width: `${percentage}%` }}
+        />
+        <input
+          type="range"
+          min={metric.min}
+          max={metric.max}
+          value={value}
+          onChange={(event) => onChange(Number(event.target.value))}
+          className="premium-range relative z-10 w-full"
+        />
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ title, action, onAction }) {
+  return (
+    <div className="grid min-h-[320px] place-items-center rounded-[1.75rem] border border-dashed border-white/15 bg-zinc-950/35 p-8 text-center">
+      <div>
+        <div className="mx-auto mb-5 h-12 w-12 rounded-2xl border border-white/10 bg-white/10" />
+        <p className="text-lg font-black text-white">{title}</p>
+        {action && (
+          <button onClick={onAction} className="mt-6 rounded-2xl bg-white px-5 py-3 text-sm font-black text-zinc-950 transition hover:bg-cyan-100">
+            {action}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("token") || "");
   const [profile, setProfile] = useState(initialProfile);
-  const [isLoginMode, setIsLoginMode] = useState(true); 
+  const [currentUser, setCurrentUser] = useState(getStoredUser);
+  const [isLoginMode, setIsLoginMode] = useState(true);
   const [activeView, setActiveView] = useState("input");
 
   const [daily, setDaily] = useState({
     sleepQuality: 7,
     energyLevel: 7,
     heartRate: 72,
+    stressLevel: 4,
+    sorenessLevel: 3,
     previousPerformance: 70
   });
 
@@ -26,57 +346,161 @@ export default function App() {
   const [plan, setPlan] = useState(null);
   const [readiness, setReadiness] = useState(null);
   const [feedback, setFeedback] = useState("medium");
+  const [chartBaseline, setChartBaseline] = useState(() => getStoredChartBaseline(getStoredUser()));
   const [message, setMessage] = useState("");
 
   if (token) setAuthToken(token);
 
-  // Slices data to only show up to a 30-day track
-  const recent30Metrics = useMemo(() => {
+  const saveCurrentUser = (userData) => {
+    const userProfile = {
+      name: userData.name || "",
+      email: userData.email || "",
+      fitnessLevel: userData.fitnessLevel || "Active",
+      fitnessGoal: userData.fitnessGoal || initialProfile.fitnessGoal,
+      experienceLevel: userData.experienceLevel || initialProfile.experienceLevel,
+      workoutDuration: String(userData.workoutDuration || initialProfile.workoutDuration)
+    };
+
+    localStorage.setItem("userProfile", JSON.stringify(userProfile));
+    setCurrentUser(userProfile);
+    setChartBaseline(getStoredChartBaseline(userProfile));
+    return userProfile;
+  };
+
+  useEffect(() => {
+    if (!token) return;
+    setAuthToken(token);
+
+    const loadCurrentUser = async () => {
+      try {
+        const res = await api.get("/auth/me");
+        saveCurrentUser(res.data);
+      } catch (error) {
+        console.error("Profile load failed", error);
+      }
+    };
+
+    loadCurrentUser();
+  }, [token]);
+
+  const bmi = useMemo(() => {
+    const weight = Number(profile.weight);
+    const heightMeters = Number(profile.height) / 100;
+    if (!weight || !heightMeters) return null;
+    return weight / Math.pow(heightMeters, 2);
+  }, [profile.weight, profile.height]);
+
+  const bmiSummary = useMemo(() => {
+    if (!bmi || !Number.isFinite(bmi)) {
+      return {
+        value: "--",
+        category: "Add height and weight",
+        note: "Your BMI preview updates automatically."
+      };
+    }
+
+    if (bmi < 18.5) {
+      return {
+        value: bmi.toFixed(1),
+        category: "Underweight",
+        note: "Focus on steady nutrition and strength foundations."
+      };
+    }
+    if (bmi < 25) {
+      return {
+        value: bmi.toFixed(1),
+        category: "Normal",
+        note: "Great baseline for balanced adaptive coaching."
+      };
+    }
+    if (bmi < 30) {
+      return {
+        value: bmi.toFixed(1),
+        category: "Overweight",
+        note: "Coaching can balance fat loss and joint-friendly volume."
+      };
+    }
+    return {
+      value: bmi.toFixed(1),
+      category: "Obese",
+      note: "Start with safe intensity and sustainable progression."
+    };
+  }, [bmi]);
+
+  const orderedMetrics = useMemo(() => {
     if (!dash?.recentMetrics) return [];
-    // Since backend now reverses the list for us, we just take the last 30
-    return dash.recentMetrics.slice(-30); 
+
+    return dash.recentMetrics
+      .map((metric, index) => ({
+        metric,
+        dateSortValue: getMetricDateSortValue(metric),
+        idSortValue: getMetricIdSortValue(metric),
+        index
+      }))
+      .sort((a, b) => {
+        if (a.dateSortValue !== null && b.dateSortValue !== null && a.dateSortValue !== b.dateSortValue) {
+          return a.dateSortValue - b.dateSortValue;
+        }
+        if (a.idSortValue !== null && b.idSortValue !== null && a.idSortValue !== b.idSortValue) {
+          return a.idSortValue - b.idSortValue;
+        }
+        return a.index - b.index;
+      })
+      .map(({ metric }) => metric);
   }, [dash]);
 
-  const adherenceData = useMemo(() =>
-    recent30Metrics.map((m, i) => ({
-      day: `Day ${i + 1}`,
-      ready: (m.ready === true || m.ready === 1 || String(m.ready).toLowerCase() === "true") ? 1 : 0
-    })), [recent30Metrics]);
+  const recent30Metrics = useMemo(() => {
+    return orderedMetrics
+      .filter((metric) => isMetricAfterChartBaseline(metric, chartBaseline))
+      .slice(-30);
+  }, [orderedMetrics, chartBaseline]);
 
-  const progressData = useMemo(() =>
-    recent30Metrics.map((m, i) => ({
-      day: `Day ${i + 1}`,
-      score: Math.round((m.readinessScore || 0) * 100)
-    })), [recent30Metrics]);
+  const adherenceData = useMemo(
+    () =>
+      recent30Metrics.map((m, i) => ({
+        day: `Day ${i + 1}`,
+        training: m.ready === true || m.ready === 1 || String(m.ready).toLowerCase() === "true" ? 1 : 0
+      })),
+    [recent30Metrics]
+  );
+
+  const progressData = useMemo(
+    () =>
+      recent30Metrics.map((m, i) => ({
+        day: `Day ${i + 1}`,
+        score: Math.round((m.readinessScore || 0) * 100)
+      })),
+    [recent30Metrics]
+  );
 
   const handleProfileChange = (key, value) => {
     if (key === "name") {
       if (/\d/.test(value)) {
-        window.alert(`Invalid Input: Your name cannot contain numbers.`);
-        return; 
+        window.alert("Invalid Input: Your name cannot contain numbers.");
+        return;
       }
       if (value.length > 20) {
-        window.alert(`Invalid Input: Name cannot exceed 20 characters.`);
+        window.alert("Invalid Input: Name cannot exceed 20 characters.");
         return;
       }
     }
 
     if ((key === "age" || key === "weight" || key === "height") && value !== "") {
       if (isNaN(Number(value))) {
-        window.alert(`Invalid Input: This field must be a number.`);
-        return; 
+        window.alert("Invalid Input: This field must be a number.");
+        return;
       }
       const numValue = Number(value);
       if (key === "age" && numValue > 150) {
-        window.alert(`Invalid Input: Please enter a valid age (maximum 150).`);
+        window.alert("Invalid Input: Please enter a valid age (maximum 150).");
         return;
       }
       if (key === "weight" && numValue > 500) {
-        window.alert(`Invalid Input: Weight cannot exceed 500 kg.`);
+        window.alert("Invalid Input: Weight cannot exceed 500 kg.");
         return;
       }
       if (key === "height" && numValue > 400) {
-        window.alert(`Invalid Input: Height cannot exceed 400 cm.`);
+        window.alert("Invalid Input: Height cannot exceed 400 cm.");
         return;
       }
     }
@@ -84,10 +508,21 @@ export default function App() {
     setProfile({ ...profile, [key]: value });
   };
 
+  const profilePayload = {
+    ...profile,
+    workoutDuration: Number(profile.workoutDuration),
+    targetDaysPerWeek: Number(profile.targetDaysPerWeek)
+  };
+
   const register = async () => {
-    const hasEmptyFields = Object.values(profile).some(val => val === "" || val === null || val === undefined);
+    const hasEmptyFields = Object.values(profile).some((val) => val === "" || val === null || val === undefined);
     if (hasEmptyFields) {
       window.alert("Please fill in all fields before registering.");
+      return;
+    }
+
+    if (!profile.safetyConfirmed) {
+      window.alert("Please confirm you can safely perform exercise before registering.");
       return;
     }
 
@@ -99,14 +534,16 @@ export default function App() {
 
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[!@#$%^&*(),.?":{}|<>]).{10,}$/;
     if (!passwordRegex.test(profile.password)) {
-      window.alert("Weak Password: Your password must be at least 10 characters long, and include an uppercase letter, a lowercase letter, and a special character.");
+      window.alert(
+        "Weak Password: Your password must be at least 10 characters long, and include an uppercase letter, a lowercase letter, and a special character."
+      );
       return;
     }
 
     try {
-      await api.post("/auth/register", profile);
+      await api.post("/auth/register", profilePayload);
       setMessage("Registered successfully. Please login.");
-      setIsLoginMode(true); 
+      setIsLoginMode(true);
     } catch (error) {
       setMessage("Registration failed. Please try again.");
     }
@@ -123,15 +560,17 @@ export default function App() {
         email: profile.email,
         password: profile.password
       });
-      
+
       const newToken = res.data.token;
       localStorage.setItem("token", newToken);
       setToken(newToken);
-      setAuthToken(newToken); 
-      
-      setMessage(" Logged in successfully.");
-      setActiveView("input"); 
-      loadDashboard(); 
+      setAuthToken(newToken);
+      const userProfile = saveCurrentUser(res.data);
+      setProfile({ ...profile, name: userProfile.name, email: userProfile.email });
+
+      setMessage("Logged in successfully.");
+      setActiveView("input");
+      loadDashboard();
     } catch (error) {
       setMessage("Login failed. Check your credentials.");
     }
@@ -153,12 +592,15 @@ export default function App() {
 
       const planRes = await api.post("/plan", {
         readiness_score: res.data.readiness_score,
-        previous_performance: daily.previousPerformance
+        previous_performance: daily.previousPerformance,
+        fitness_goal: currentUser?.fitnessGoal || profile.fitnessGoal,
+        experience_level: currentUser?.experienceLevel || profile.experienceLevel,
+        preferred_duration: Number(currentUser?.workoutDuration || profile.workoutDuration)
       });
 
       setPlan(planRes.data);
-      await loadDashboard(); 
-      setActiveView("plan"); 
+      await loadDashboard();
+      setActiveView("plan");
     } catch (error) {
       console.error("Failed to submit daily data", error);
     }
@@ -185,293 +627,498 @@ export default function App() {
   };
 
   const handleChartRefresh = () => {
-    const daysLogged = dash?.recentMetrics?.length || 0;
+    const daysLogged = recent30Metrics.length;
     if (daysLogged >= 30) {
+      const latestMetric = recent30Metrics[recent30Metrics.length - 1];
+      const nextBaseline = {
+        metricDate: latestMetric?.metricDate || null,
+        id: latestMetric?.id ?? null
+      };
+
+      saveStoredChartBaseline(currentUser || { email: profile.email }, nextBaseline);
+      setChartBaseline(nextBaseline);
       loadDashboard();
-      setMessage("✅ Charts refreshed successfully.");
+      setMessage("Charts refreshed. Your next log will start a new chart cycle at Day 1.");
     } else {
-      window.alert(` You can refresh the chart after 30 days. Currently logged: ${daysLogged} days.`);
+      window.alert(`You can refresh the chart after 30 days. Currently logged: ${daysLogged} days.`);
     }
   };
 
-  const fieldsToShow = isLoginMode 
-    ? ["email", "password"] 
-    : Object.keys(initialProfile);
+  const renderInput = (key, label, options = {}) => (
+    <Field label={label} hint={options.hint}>
+      <TextInput
+        value={profile[key]}
+        type={options.type || "text"}
+        min={options.min}
+        max={options.max}
+        onChange={(event) => handleProfileChange(key, event.target.value)}
+        placeholder={options.placeholder}
+      />
+    </Field>
+  );
 
-  return (
-    <div className="min-h-screen bg-slate-800 text-slate-100 font-sans flex flex-col items-center p-6 sm:p-10">
+  const renderChoiceGroup = (key, label, columns = "grid-cols-2 sm:grid-cols-3") => (
+    <Field label={label}>
+      <ChoiceGrid options={choiceGroups[key]} value={profile[key]} onChange={(value) => setProfile({ ...profile, [key]: value })} columns={columns} />
+    </Field>
+  );
 
-      <div className="mb-10 text-center">
-        <h1 className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-300 tracking-tight mb-3">
-          FitSense AI
-        </h1>
-        <p className="font-medium text-lg text-slate-400">
-          Adaptive Daily Fitness Coaching
-        </p>
-      </div>
+  const displayName = currentUser?.name || profile.name || "Athlete";
+  const displayEmail = currentUser?.email || profile.email;
+  const readinessPercent = readiness ? (readiness.readiness_score * 100).toFixed(0) : "--";
+  const daysLogged = recent30Metrics.length;
 
-      {!token && (
-        <div className="w-full max-w-2xl animate-fade-in-up">
-          <div className="bg-slate-700 p-8 sm:p-10 rounded-3xl shadow-2xl border border-slate-600">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-white">
-                {isLoginMode ? "Welcome Back" : "Create Your Account"}
-              </h2>
-              <p className="text-slate-300 mt-1">
-                {isLoginMode ? "Enter your details to access your AI coach" : "Let's personalize your fitness journey"}
+  const goalReminder = [
+    { label: "Goal", value: getChoiceLabel("fitnessGoal", currentUser?.fitnessGoal || profile.fitnessGoal) },
+    { label: "Experience", value: getChoiceLabel("experienceLevel", currentUser?.experienceLevel || profile.experienceLevel) },
+    { label: "Duration", value: getChoiceLabel("workoutDuration", currentUser?.workoutDuration || profile.workoutDuration) }
+  ];
+
+  const navItems = [
+    { id: "input", label: "Today", meta: "Biometrics" },
+    { id: "plan", label: "Coach", meta: "AI plan" },
+    { id: "dashboard", label: "Progress", meta: "Trends" }
+  ];
+
+  const logout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("userProfile");
+    setToken("");
+    setCurrentUser(null);
+    setChartBaseline(null);
+    setAuthToken(null);
+    setDash(null);
+    setPlan(null);
+    setReadiness(null);
+    setProfile(initialProfile);
+    setActiveView("input");
+  };
+
+  if (!token) {
+    return (
+      <main className="min-h-screen overflow-hidden bg-[#07090d] text-white">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(45,212,191,0.20),transparent_28%),radial-gradient(circle_at_80%_0%,rgba(244,114,182,0.14),transparent_26%),linear-gradient(135deg,rgba(15,23,42,0.95),rgba(3,7,18,1))]" />
+        <div className="relative mx-auto grid min-h-screen w-full max-w-7xl grid-cols-1 gap-8 px-5 py-6 lg:grid-cols-[0.82fr_1.18fr] lg:px-8">
+          <aside className="flex min-h-[460px] flex-col justify-between rounded-[2.5rem] border border-white/10 bg-white/[0.07] p-7 shadow-2xl shadow-black/30 backdrop-blur-2xl lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
+            <BrandMark />
+            <div className="my-8">
+              <div className="mb-5 inline-flex rounded-full border border-cyan-200/25 bg-cyan-200/10 px-4 py-2 text-xs font-black uppercase tracking-[0.22em] text-cyan-100">
+                Adaptive readiness engine
+              </div>
+              <h1 className="max-w-xl text-4xl font-black leading-[0.96] tracking-tight text-white sm:text-5xl">
+                Train with the precision of an AI performance team.
+              </h1>
+              <p className="mt-5 max-w-lg text-base leading-8 text-zinc-300">
+                FitSense converts sleep, energy, stress, soreness, heart rate, goals, and feedback into a daily plan that feels personal, premium, and measurable.
               </p>
             </div>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                ["Readiness", "Live"],
+                ["Plans", "Adaptive"],
+                ["Trends", "30 day"]
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-3xl border border-white/10 bg-zinc-950/45 p-4">
+                  <p className="text-xl font-black text-white">{value}</p>
+                  <p className="mt-1 text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">{label}</p>
+                </div>
+              ))}
+            </div>
+          </aside>
 
-            <div className={`grid gap-5 ${isLoginMode ? 'grid-cols-1 max-w-md mx-auto' : 'grid-cols-1 sm:grid-cols-2'}`}>
-              {fieldsToShow.map((k) => {
-                if (k === "gender") {
-                  return (
-                    <div key={k} className="flex flex-col sm:col-span-2 mt-2">
-                      <label className="text-sm font-semibold text-slate-300 mb-2">Select Biological Sex</label>
-                      <div className="grid grid-cols-3 gap-3">
-                        {["male", "female", "other"].map(g => (
-                          <button
-                            key={g}
-                            type="button"
-                            onClick={() => setProfile({...profile, gender: g})}
-                            className={`py-3 rounded-xl font-semibold capitalize transition-all border-2 ${
-                              profile.gender === g 
-                                ? "bg-blue-500 border-blue-400 text-white shadow-md" 
-                                : "bg-slate-800 border-slate-600 text-slate-300 hover:border-slate-500 hover:bg-slate-700"
-                            }`}
-                          >
-                            {g}
-                          </button>
-                        ))}
+          <section className="flex items-center">
+            <Panel className={cx("w-full p-5 sm:p-7", isLoginMode ? "max-w-xl lg:ml-auto" : "")}>
+              <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.22em] text-cyan-200/80">{isLoginMode ? "Member access" : "Personalization"}</p>
+                  <h2 className="mt-2 text-3xl font-black tracking-tight text-white">{isLoginMode ? "Welcome back" : "Build your AI profile"}</h2>
+                </div>
+                <button
+                  onClick={() => {
+                    setIsLoginMode(!isLoginMode);
+                    setMessage("");
+                  }}
+                  className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-black text-white transition hover:bg-white/10"
+                >
+                  {isLoginMode ? "Create account" : "Sign in"}
+                </button>
+              </div>
+
+              {isLoginMode ? (
+                <div className="grid gap-5">
+                  {renderInput("email", "Email", { type: "email", placeholder: "you@example.com" })}
+                  {renderInput("password", "Password", { type: "password", placeholder: "Enter your password" })}
+                </div>
+              ) : (
+                <div className="grid gap-5">
+                  <div className="grid gap-5 lg:grid-cols-2">
+                    {renderInput("name", "Name", { placeholder: "Max 20 characters" })}
+                    {renderInput("email", "Email", { type: "email", placeholder: "you@example.com" })}
+                    {renderInput("password", "Password", {
+                      type: "password",
+                      placeholder: "Create a strong password",
+                      hint: "Min 10 chars, 1 uppercase, 1 lowercase, 1 special char."
+                    })}
+                    {renderInput("age", "Age", { type: "number", min: 1, max: 150 })}
+                    {renderInput("weight", "Weight (kg)", { type: "number", min: 1, max: 500 })}
+                    {renderInput("height", "Height (cm)", { type: "number", min: 1, max: 400 })}
+                  </div>
+
+                  <div className="rounded-[1.75rem] border border-cyan-200/15 bg-cyan-200/[0.07] p-5">
+                    <div className="flex items-end justify-between gap-5">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-100/80">Live BMI</p>
+                        <p className="mt-2 text-5xl font-black tracking-tight text-white">{bmiSummary.value}</p>
+                      </div>
+                      <div className="max-w-xs text-right">
+                        <p className="font-black text-cyan-50">{bmiSummary.category}</p>
+                        <p className="mt-1 text-sm leading-6 text-zinc-300">{bmiSummary.note}</p>
                       </div>
                     </div>
-                  );
-                }
-
-                let label = k;
-                let placeholder = `Enter your ${k}`;
-                if (k === "weight") { label = "Weight (kg)"; placeholder = "Max 500kg"; }
-                if (k === "height") { label = "Height (cm)"; placeholder = "Max 400cm"; }
-                if (k === "age") { label = "Age"; placeholder = "Max 150"; }
-                if (k === "name") { placeholder = "Max 20 characters"; }
-
-                const showPasswordHint = !isLoginMode && k === "password";
-
-                return (
-                  <div key={k} className="flex flex-col">
-                    <label className="text-sm font-semibold text-slate-300 capitalize mb-1">
-                      {label}
-                    </label>
-                    <input
-                      value={profile[k]}
-                      type={k === "password" ? "password" : k === "email" ? "email" : k === "age" || k === "weight" || k === "height" ? "number" : "text"}
-                      onChange={(e) => handleProfileChange(k, e.target.value)}
-                      placeholder={placeholder}
-                      className="bg-slate-800 border border-slate-600 text-white placeholder-slate-400 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 block w-full p-3 transition-all outline-none"
-                    />
-                    {showPasswordHint && (
-                      <span className="text-xs text-slate-400 mt-1">
-                        Min 10 chars, 1 uppercase, 1 lowercase, 1 special char.
-                      </span>
-                    )}
                   </div>
-                );
-              })}
-            </div>
 
-            <div className="flex flex-col items-center mt-8 max-w-md mx-auto">
+                  {renderChoiceGroup("gender", "Biological sex", "grid-cols-3")}
+                  {renderChoiceGroup("fitnessGoal", "Fitness goal", "grid-cols-2 xl:grid-cols-5")}
+                  {renderChoiceGroup("activityLevel", "Activity level", "grid-cols-2 xl:grid-cols-4")}
+                  <div className="grid gap-5 xl:grid-cols-2">
+                    {renderChoiceGroup("experienceLevel", "Workout experience", "grid-cols-3")}
+                    {renderChoiceGroup("workoutDuration", "Preferred duration", "grid-cols-2 sm:grid-cols-4")}
+                  </div>
+                  <div className="grid gap-5 xl:grid-cols-2">
+                    {renderChoiceGroup("targetDaysPerWeek", "Target days per week", "grid-cols-2 sm:grid-cols-4")}
+                    {renderChoiceGroup("injuryLimitation", "Injury or limitation", "grid-cols-2 sm:grid-cols-3")}
+                  </div>
+
+                  <label className="flex items-start gap-3 rounded-[1.5rem] border border-white/10 bg-zinc-950/45 p-4 text-sm leading-6 text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={profile.safetyConfirmed}
+                      onChange={(event) => setProfile({ ...profile, safetyConfirmed: event.target.checked })}
+                      className="mt-1 h-4 w-4 rounded border-white/20 bg-zinc-950 accent-cyan-200"
+                    />
+                    <span>I confirm I can safely perform exercise and will stop if I feel pain.</span>
+                  </label>
+                </div>
+              )}
+
               <button
                 onClick={isLoginMode ? login : register}
-                className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold transition px-8 py-3 rounded-xl shadow-lg mb-4"
+                className="mt-7 h-14 w-full rounded-2xl bg-white text-sm font-black uppercase tracking-[0.14em] text-zinc-950 shadow-xl shadow-white/10 transition hover:bg-cyan-100"
               >
-                {isLoginMode ? "Sign In" : "Register Account"}
+                {isLoginMode ? "Sign in" : "Create FitSense profile"}
               </button>
-              
-              <button
-                onClick={() => {
-                  setIsLoginMode(!isLoginMode);
-                  setMessage(""); 
-                }}
-                className="text-sm text-blue-400 hover:text-blue-300 font-medium transition"
-              >
-                {isLoginMode 
-                  ? "Don't have an account? Register here" 
-                  : "Already have an account? Sign in here"}
-              </button>
-            </div>
 
-            {message && (
-              <div className="mt-6 p-4 bg-slate-800 text-blue-300 rounded-xl text-center font-medium border border-slate-600">
-                {message}
-              </div>
-            )}
-          </div>
+              {message && <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.06] p-4 text-center text-sm font-bold text-cyan-100">{message}</div>}
+            </Panel>
+          </section>
         </div>
-      )}
+      </main>
+    );
+  }
 
-      {token && (
-        <div className="w-full max-w-4xl space-y-6 animate-fade-in-up">
-          <div className="bg-slate-700 p-6 rounded-3xl shadow-2xl border border-slate-600 flex flex-col sm:flex-row justify-between items-center gap-4">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-full flex items-center justify-center text-white text-xl font-bold shadow-inner">
-                {profile.name ? profile.name.charAt(0).toUpperCase() : "U"}
-              </div>
-              <div>
-                <p className="text-xl font-bold text-white">Hello, {profile.name || "Athlete"}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="bg-blue-900/40 border border-blue-500/30 text-blue-300 px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase">
-                    {dash?.fitnessLevel || "Active"}
-                  </span>
-                  <span className="text-sm text-slate-400">{profile.email}</span>
-                </div>
-              </div>
-            </div>
-            
-            <button
-              onClick={() => {
-                localStorage.removeItem("token");
-                setToken("");
-                setAuthToken(null);
-                setDash(null);
-                setPlan(null);
-                setReadiness(null);
-                setProfile(initialProfile); 
-                setActiveView("input");
-              }}
-              className="bg-red-500/10 hover:bg-red-500/20 text-red-400 font-medium px-5 py-2 rounded-xl transition border border-red-500/20"
-            >
+  return (
+    <main className="min-h-screen bg-[#080a0f] text-white">
+      <div className="fixed inset-0 bg-[radial-gradient(circle_at_15%_10%,rgba(45,212,191,0.12),transparent_28%),radial-gradient(circle_at_90%_12%,rgba(251,191,36,0.10),transparent_22%),linear-gradient(180deg,#080a0f_0%,#0d1117_48%,#080a0f_100%)]" />
+      <div className="relative mx-auto flex w-full max-w-[1500px] flex-col gap-5 px-4 py-4 lg:grid lg:grid-cols-[280px_minmax(0,1fr)] lg:px-6">
+        <aside className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-5 backdrop-blur-2xl lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)]">
+          <div className="flex items-center justify-between">
+            <BrandMark />
+            <button onClick={logout} className="rounded-2xl border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs font-black uppercase tracking-[0.16em] text-rose-100 transition hover:bg-rose-300/15">
               Logout
             </button>
           </div>
 
-          <div className="flex gap-2 bg-slate-700 p-2 rounded-2xl border border-slate-600 shadow-lg">
-            <button onClick={() => setActiveView("input")} className={`flex-1 py-3 rounded-xl font-bold transition-all ${activeView === "input" ? "bg-blue-500 text-white" : "text-slate-400 hover:bg-slate-600"}`}>📝 Daily Input</button>
-            <button onClick={() => setActiveView("plan")} className={`flex-1 py-3 rounded-xl font-bold transition-all ${activeView === "plan" ? "bg-indigo-500 text-white" : "text-slate-400 hover:bg-slate-600"}`}>🤖 AI Plan</button>
-            <button onClick={() => { loadDashboard(); setActiveView("dashboard"); }} className={`flex-1 py-3 rounded-xl font-bold transition-all ${activeView === "dashboard" ? "bg-emerald-500 text-white" : "text-slate-400 hover:bg-slate-600"}`}>📈 Dashboard</button>
+          <div className="mt-8 rounded-[1.75rem] border border-white/10 bg-zinc-950/45 p-4">
+            <div className="flex items-center gap-3">
+              <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-cyan-200 to-lime-200 text-xl font-black text-zinc-950">
+                {displayName ? displayName.charAt(0).toUpperCase() : "U"}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-lg font-black text-white">{displayName}</p>
+                <p className="truncate text-sm text-zinc-400">{displayEmail}</p>
+              </div>
+            </div>
+            <div className="mt-4 rounded-2xl bg-emerald-300/10 px-4 py-3 text-sm font-black text-emerald-100">
+              {dash?.fitnessLevel || currentUser?.fitnessLevel || "Active"} athlete
+            </div>
           </div>
 
-          {message && <div className="p-4 bg-green-900/30 text-green-400 rounded-xl text-center font-medium border border-green-800">{message}</div>}
+          <nav className="mt-5 grid gap-2">
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  if (item.id === "dashboard") loadDashboard();
+                  setActiveView(item.id);
+                }}
+                className={cx(
+                  "flex items-center justify-between rounded-2xl border px-4 py-4 text-left transition",
+                  activeView === item.id
+                    ? "border-cyan-200 bg-cyan-200 text-zinc-950 shadow-lg shadow-cyan-500/15"
+                    : "border-white/10 bg-white/[0.04] text-zinc-300 hover:bg-white/10"
+                )}
+              >
+                <span>
+                  <span className="block text-sm font-black">{item.label}</span>
+                  <span className={cx("mt-1 block text-xs font-bold", activeView === item.id ? "text-zinc-700" : "text-zinc-500")}>{item.meta}</span>
+                </span>
+                <span className="text-lg">→</span>
+              </button>
+            ))}
+          </nav>
 
-          {activeView === "input" && (
-            <div className="bg-slate-700 p-6 sm:p-8 rounded-3xl shadow-2xl border border-slate-600 animate-fade-in-up">
-              <h2 className="text-2xl font-bold text-white mb-6">📊 Enter Daily Biometrics</h2>
-              <div className="space-y-8">
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <label className="text-sm font-semibold text-slate-300">Sleep Quality (1-10)</label>
-                    <span className="text-lg font-bold text-indigo-400">{daily.sleepQuality}</span>
-                  </div>
-                  <input type="range" min="1" max="10" value={daily.sleepQuality} onChange={(e) => setDaily({ ...daily, sleepQuality: Number(e.target.value) })} className="w-full h-3 bg-slate-800 rounded-lg accent-indigo-500" />
+          <div className="mt-5 grid gap-3">
+            {goalReminder.map((item) => (
+              <div key={item.label} className="rounded-2xl border border-white/10 bg-zinc-950/35 p-4">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-zinc-500">{item.label}</p>
+                <p className="mt-1 text-sm font-black text-white">{item.value}</p>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        <section className="min-w-0 space-y-5">
+          <Panel className="p-5 sm:p-7">
+            <div className="grid gap-5 xl:grid-cols-[1fr_420px] xl:items-center">
+              <div>
+                <div className="mb-4 inline-flex rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-zinc-300">
+                  {new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
                 </div>
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <label className="text-sm font-semibold text-slate-300">Energy Level (1-10)</label>
-                    <span className="text-lg font-bold text-amber-400">{daily.energyLevel}</span>
-                  </div>
-                  <input type="range" min="1" max="10" value={daily.energyLevel} onChange={(e) => setDaily({ ...daily, energyLevel: Number(e.target.value) })} className="w-full h-3 bg-slate-800 rounded-lg accent-amber-500" />
+                <h1 className="text-4xl font-black tracking-tight text-white sm:text-5xl">Your adaptive training cockpit</h1>
+                <p className="mt-4 max-w-3xl text-base leading-8 text-zinc-300">
+                  Log today's signals, let the model decide training readiness, then turn the result into a focused workout and measurable trend line.
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-[1.5rem] border border-white/10 bg-zinc-950/45 p-4">
+                  <p className="text-3xl font-black text-white">{readinessPercent}%</p>
+                  <p className="mt-1 text-xs font-black uppercase tracking-[0.16em] text-zinc-500">Readiness</p>
                 </div>
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <label className="text-sm font-semibold text-slate-300">Resting Heart Rate</label>
-                    <span className="text-lg font-bold text-rose-400">{daily.heartRate} bpm</span>
-                  </div>
-                  <input type="range" min="40" max="120" value={daily.heartRate} onChange={(e) => setDaily({ ...daily, heartRate: Number(e.target.value) })} className="w-full h-3 bg-slate-800 rounded-lg accent-rose-500" />
+                <div className="rounded-[1.5rem] border border-white/10 bg-zinc-950/45 p-4">
+                  <p className="text-3xl font-black text-white">{daysLogged}</p>
+                  <p className="mt-1 text-xs font-black uppercase tracking-[0.16em] text-zinc-500">Logs</p>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-4 mt-6">
-                  <button onClick={submitDaily} className="flex-1 bg-gradient-to-r from-blue-500 to-indigo-500 text-white font-bold py-4 rounded-xl shadow-lg transition-all transform hover:-translate-y-0.5 text-lg">Analyze & Generate Plan 🚀</button>
-                  <button onClick={() => { loadDashboard(); setActiveView("dashboard"); }} className="flex-1 bg-slate-800 text-white font-bold py-4 rounded-xl border border-slate-600 text-lg">Go to Dashboard 📈</button>
+                <div className="rounded-[1.5rem] border border-white/10 bg-zinc-950/45 p-4">
+                  <p className="truncate text-3xl font-black capitalize text-white">{plan?.intensity || "Set"}</p>
+                  <p className="mt-1 text-xs font-black uppercase tracking-[0.16em] text-zinc-500">Intensity</p>
                 </div>
               </div>
+            </div>
+          </Panel>
+
+          {activeView === "input" && (
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <Panel className="p-5 sm:p-7">
+                <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-sm font-black uppercase tracking-[0.22em] text-cyan-100/80">Daily signal capture</p>
+                    <h2 className="mt-2 text-3xl font-black tracking-tight text-white">Biometric check-in</h2>
+                  </div>
+                  <button onClick={submitDaily} className="rounded-2xl bg-white px-5 py-3 text-sm font-black uppercase tracking-[0.14em] text-zinc-950 transition hover:bg-cyan-100">
+                    Analyze day
+                  </button>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {metrics.map((metric) => (
+                    <MetricSlider
+                      key={metric.key}
+                      metric={metric}
+                      value={daily[metric.key]}
+                      onChange={(value) => setDaily({ ...daily, [metric.key]: value })}
+                    />
+                  ))}
+                  <div className="rounded-[1.5rem] border border-white/10 bg-zinc-950/45 p-5 lg:col-span-2">
+                    <div className="mb-4 flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-base font-black text-white">Previous Performance</p>
+                        <p className="mt-1 text-sm text-zinc-400">How well your last session landed</p>
+                      </div>
+                      <p className="text-3xl font-black text-white">{daily.previousPerformance}%</p>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={daily.previousPerformance}
+                      onChange={(event) => setDaily({ ...daily, previousPerformance: Number(event.target.value) })}
+                      className="premium-range w-full"
+                    />
+                  </div>
+                </div>
+              </Panel>
+
+              <Panel className="p-5 sm:p-7">
+                <p className="text-sm font-black uppercase tracking-[0.22em] text-lime-100/80">Today preview</p>
+                <div className="mt-5 rounded-[1.75rem] bg-gradient-to-br from-white to-cyan-100 p-5 text-zinc-950">
+                  <p className="text-sm font-black uppercase tracking-[0.16em] text-zinc-600">AI decision</p>
+                  <p className="mt-3 text-4xl font-black tracking-tight">{readiness ? (readiness.ready ? "Train" : "Recover") : "Pending"}</p>
+                  <p className="mt-4 text-sm font-semibold leading-6 text-zinc-700">
+                    Submit your signals to generate a readiness score and a workout tuned to your goal, level, and preferred duration.
+                  </p>
+                </div>
+                <button onClick={() => { loadDashboard(); setActiveView("dashboard"); }} className="mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4 text-sm font-black text-white transition hover:bg-white/10">
+                  View progress trends
+                </button>
+              </Panel>
             </div>
           )}
 
           {activeView === "plan" && (
-            <div className="bg-slate-700 p-6 sm:p-10 rounded-3xl shadow-2xl border border-slate-600 animate-fade-in-up">
-              <h2 className="text-2xl font-bold text-white mb-6">🤖 AI Assessment & Plan</h2>
-              {!readiness ? (
-                <div className="flex flex-col items-center justify-center text-slate-400 py-16 bg-slate-800 rounded-2xl border border-slate-600">
-                  <div className="w-12 h-12 border-4 border-slate-600 border-t-blue-500 rounded-full animate-spin mb-4"></div>
-                  <p className="text-lg">Awaiting biometric input...</p>
-                  <button onClick={() => setActiveView("input")} className="mt-4 text-blue-400 underline">Go to Daily Input</button>
+            <Panel className="p-5 sm:p-7">
+              <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[0.22em] text-cyan-100/80">AI coach</p>
+                  <h2 className="mt-2 text-3xl font-black tracking-tight text-white">Assessment and plan</h2>
                 </div>
+                <button onClick={() => setActiveView("input")} className="rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-3 text-sm font-black text-white transition hover:bg-white/10">
+                  Update signals
+                </button>
+              </div>
+
+              {!readiness ? (
+                <EmptyState title="Awaiting biometric input" action="Go to daily check-in" onAction={() => setActiveView("input")} />
               ) : (
-                <div className="space-y-6">
-                  <div className={`p-6 rounded-2xl flex flex-col sm:flex-row items-center justify-between border ${readiness.ready ? "bg-green-900/20 border-green-800" : "bg-amber-900/20 border-amber-800"}`}>
-                    <div className="text-center sm:text-left">
-                      <p className={`font-bold text-2xl ${readiness.ready ? "text-green-400" : "text-amber-400"}`}>{readiness.ready ? "Optimal Readiness" : "Recovery Recommended"}</p>
-                      <p className="text-slate-400 mt-1">Based on today's biometrics</p>
-                    </div>
-                    <div className={`text-5xl font-black ${readiness.ready ? "text-green-400" : "text-amber-400"}`}>{(readiness.readiness_score * 100).toFixed(0)}%</div>
+                <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+                  <div className={cx("rounded-[2rem] border p-6", readiness.ready ? "border-emerald-300/25 bg-emerald-300/10" : "border-amber-300/25 bg-amber-300/10")}>
+                    <p className="text-sm font-black uppercase tracking-[0.22em] text-zinc-300">Readiness score</p>
+                    <p className={cx("mt-5 text-7xl font-black tracking-tight", readiness.ready ? "text-emerald-100" : "text-amber-100")}>
+                      {readinessPercent}%
+                    </p>
+                    <p className="mt-4 text-3xl font-black text-white">{readiness.ready ? "Training day" : "Recovery day"}</p>
+                    <p className="mt-3 text-sm leading-6 text-zinc-300">Based on today's sleep, energy, heart rate, stress, soreness, and prior session performance.</p>
                   </div>
+
                   {plan && (
-                    <div className="bg-slate-800 p-6 sm:p-8 rounded-2xl border border-slate-600">
-                      <h3 className="font-bold text-indigo-300 mb-6 uppercase tracking-widest text-sm">⚡ Today's Adaptive Plan</h3>
-                      <div className="space-y-4">
-                        <div className="flex justify-between border-b border-slate-700 pb-4"><span className="text-slate-400 text-lg">Workout</span><span className="font-bold text-white text-lg">{plan.workout_type}</span></div>
-                        <div className="flex justify-between border-b border-slate-700 pb-4"><span className="text-slate-400 text-lg">Intensity</span><span className="font-bold text-white text-lg capitalize">{plan.intensity}</span></div>
-                        <div className="flex justify-between pb-2"><span className="text-slate-400 text-lg">Duration</span><span className="font-bold text-white text-lg">{plan.duration_minutes} Min</span></div>
+                    <div className="rounded-[2rem] border border-white/10 bg-zinc-950/45 p-6">
+                      <p className="text-sm font-black uppercase tracking-[0.22em] text-cyan-100/80">Today's adaptive plan</p>
+                      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.055] p-4">
+                          <p className="text-xs font-black uppercase tracking-[0.16em] text-zinc-500">Workout</p>
+                          <p className="mt-2 text-xl font-black text-white">{plan.workout_type}</p>
+                        </div>
+                        <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.055] p-4">
+                          <p className="text-xs font-black uppercase tracking-[0.16em] text-zinc-500">Intensity</p>
+                          <p className="mt-2 text-xl font-black capitalize text-white">{plan.intensity}</p>
+                        </div>
+                        <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.055] p-4">
+                          <p className="text-xs font-black uppercase tracking-[0.16em] text-zinc-500">Duration</p>
+                          <p className="mt-2 text-xl font-black text-white">{plan.duration_minutes} min</p>
+                        </div>
                       </div>
-                      <div className="mt-8 pt-6 border-t border-slate-700 text-center">
-                         <h4 className="text-md font-bold text-slate-300 mb-4">How did it feel?</h4>
-                         <div className="flex gap-3 mb-4">
-                           {["easy", "medium", "hard"].map(level => (
-                             <button key={level} onClick={() => setFeedback(level)} className={`flex-1 py-3 rounded-xl font-bold capitalize transition border ${feedback === level ? "bg-indigo-500 border-indigo-400 text-white shadow-lg scale-105" : "bg-slate-700 border-slate-500 text-slate-300"}`}>{level}</button>
-                           ))}
-                         </div>
-                         <button onClick={submitFeedback} className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl border border-slate-700 shadow-lg">Submit Feedback to AI Core</button>
+
+                      {plan.focus && (
+                        <div className="mt-4 rounded-[1.5rem] border border-cyan-200/15 bg-cyan-200/[0.07] p-4">
+                          <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-100/80">Training focus</p>
+                          <p className="mt-2 text-sm leading-6 text-zinc-200">{plan.focus}</p>
+                        </div>
+                      )}
+
+                      {plan.examples && (
+                        <div className="mt-5 grid gap-3 md:grid-cols-2">
+                          {Object.entries(plan.examples).map(([category, exercises]) => (
+                            <div key={category} className="rounded-[1.5rem] border border-white/10 bg-white/[0.045] p-4">
+                              <p className="text-sm font-black text-white">{category}</p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {exercises.map((exercise) => (
+                                  <span key={exercise} className="rounded-full border border-white/10 bg-zinc-950/55 px-3 py-1 text-xs font-bold text-zinc-300">
+                                    {exercise}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="mt-6 border-t border-white/10 pt-5">
+                        <p className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-zinc-400">How did it feel?</p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {["easy", "medium", "hard"].map((level) => (
+                            <button
+                              key={level}
+                              onClick={() => setFeedback(level)}
+                              className={cx(
+                                "rounded-2xl border px-4 py-3 text-sm font-black capitalize transition",
+                                feedback === level ? "border-lime-200 bg-lime-200 text-zinc-950" : "border-white/10 bg-white/[0.055] text-zinc-300 hover:bg-white/10"
+                              )}
+                            >
+                              {level}
+                            </button>
+                          ))}
+                        </div>
+                        <button onClick={submitFeedback} className="mt-3 w-full rounded-2xl bg-white px-5 py-4 text-sm font-black uppercase tracking-[0.14em] text-zinc-950 transition hover:bg-cyan-100">
+                          Submit feedback to AI core
+                        </button>
                       </div>
                     </div>
                   )}
                 </div>
               )}
-            </div>
+            </Panel>
           )}
 
           {activeView === "dashboard" && (
-            <div className="bg-slate-700 p-6 sm:p-10 rounded-3xl shadow-2xl border border-slate-600 animate-fade-in-up">
-              <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
-                <h2 className="text-2xl font-bold text-white">📈 Performance Trends</h2>
-                <button onClick={handleChartRefresh} className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${(dash?.recentMetrics?.length || 0) >= 30 ? "bg-blue-600 text-white shadow-lg" : "bg-slate-800 text-slate-400 border border-slate-600"}`}>
-                  Refresh Charts ({(dash?.recentMetrics?.length || 0)}/30 Days)
+            <Panel className="p-5 sm:p-7">
+              <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[0.22em] text-cyan-100/80">Performance intelligence</p>
+                  <h2 className="mt-2 text-3xl font-black tracking-tight text-white">30 day trends</h2>
+                </div>
+                <button
+                  onClick={handleChartRefresh}
+                  className={cx(
+                    "rounded-2xl px-5 py-3 text-sm font-black transition",
+                    daysLogged >= 30 ? "bg-white text-zinc-950 hover:bg-cyan-100" : "border border-white/10 bg-white/[0.06] text-zinc-300 hover:bg-white/10"
+                  )}
+                >
+                  Refresh charts ({daysLogged}/30 days)
                 </button>
               </div>
-              {(!dash || !dash.recentMetrics || dash.recentMetrics.length === 0) ? (
-                <div className="flex flex-col items-center justify-center text-slate-400 py-16 bg-slate-800 rounded-2xl border border-slate-600">
-                  <p className="text-lg mb-2">No historical data available yet.</p>
-                  <button onClick={() => setActiveView("input")} className="mt-6 bg-blue-500 text-white px-6 py-2 rounded-lg font-bold">Go to Daily Input</button>
-                </div>
+
+              {(!dash || recent30Metrics.length === 0) ? (
+                <EmptyState title="No historical data available yet" action="Log today's metrics" onAction={() => setActiveView("input")} />
               ) : (
-                <div className="grid grid-cols-1 gap-12">
-                  <div className="bg-slate-800 p-6 rounded-2xl border border-slate-600">
-                    <h3 className="text-lg font-bold text-slate-300 mb-6 text-center">Readiness Score History (Last 30 Days)</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <LineChart data={progressData} margin={{ top: 10, right: 20, left: -20, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
-                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} tickFormatter={(v) => `${v}%`} />
-                        <Tooltip formatter={(v) => [`${v}%`, 'Score']} contentStyle={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', color: '#f8fafc' }} />
-                        <Line type="monotone" dataKey="score" stroke="#60a5fa" strokeWidth={4} dot={{r: 5, fill: '#60a5fa', strokeWidth: 2, stroke: '#1e293b'}} activeDot={{r: 8}} />
+                <div className="grid gap-5 xl:grid-cols-2">
+                  <div className="rounded-[2rem] border border-white/10 bg-zinc-950/45 p-5">
+                    <h3 className="mb-6 text-lg font-black text-white">Readiness score history</h3>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <LineChart data={progressData} margin={{ top: 10, right: 20, left: -18, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.10)" />
+                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: "#a1a1aa", fontSize: 12 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fill: "#a1a1aa", fontSize: 12 }} tickFormatter={(v) => `${v}%`} />
+                        <Tooltip
+                          formatter={(v) => [`${v}%`, "Score"]}
+                          contentStyle={{ backgroundColor: "#09090b", borderRadius: "18px", border: "1px solid rgba(255,255,255,0.12)", color: "#fff" }}
+                        />
+                        <Line type="monotone" dataKey="score" stroke="#67e8f9" strokeWidth={4} dot={{ r: 4, fill: "#67e8f9", strokeWidth: 2, stroke: "#09090b" }} activeDot={{ r: 7 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
-                  <div className="bg-slate-800 p-6 rounded-2xl border border-slate-600">
-                    <h3 className="text-lg font-bold text-slate-300 mb-6 text-center">Adherence (Days Ready)</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={adherenceData} margin={{ top: 10, right: 20, left: -20, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#475569" />
-                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
-                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
-                        <Tooltip cursor={{fill: '#334155'}} contentStyle={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', color: '#f8fafc' }} />
-                        <Bar dataKey="ready" fill="#34d399" radius={[6, 6, 0, 0]} barSize={40} />
+                  <div className="rounded-[2rem] border border-white/10 bg-zinc-950/45 p-5">
+                    <h3 className="mb-6 text-lg font-black text-white">Training and recovery days</h3>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <BarChart data={adherenceData} margin={{ top: 10, right: 20, left: -18, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.10)" />
+                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: "#a1a1aa", fontSize: 12 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fill: "#a1a1aa", fontSize: 12 }} ticks={[0, 1]} tickFormatter={(v) => (v === 1 ? "Training" : "Recovery")} />
+                        <Tooltip
+                          cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                          formatter={(v) => [v === 1 ? "Training" : "Recovery", "Status"]}
+                          contentStyle={{ backgroundColor: "#09090b", borderRadius: "18px", border: "1px solid rgba(255,255,255,0.12)", color: "#fff" }}
+                        />
+                        <Bar dataKey="training" fill="#bef264" radius={[10, 10, 0, 0]} barSize={34} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
               )}
-            </div>
+            </Panel>
           )}
-        </div>
-      )}
-    </div>
+
+          {message && <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-center text-sm font-black text-emerald-100">{message}</div>}
+        </section>
+      </div>
+    </main>
   );
 }

@@ -53,7 +53,7 @@ public class FitnessController {
         User user = auth(authHeader);
         
         // Fetch Top 30 instead of Top 7
-        List<DailyMetric> metrics = metricRepository.findTop30ByUserOrderByMetricDateDesc(user);
+        List<DailyMetric> metrics = metricRepository.findTop30ByUserOrderByMetricDateDescIdDesc(user);
         
         // Reverse the list so the chart plots from oldest day (left) to newest day (right)
         Collections.reverse(metrics);
@@ -75,7 +75,9 @@ public class FitnessController {
         Map<String, Object> readiness = aiClient.post("/readiness", Map.of(
                 "sleep_quality", input.sleepQuality(),
                 "heart_rate", input.heartRate(),
-                "energy_level", input.energyLevel()
+                "energy_level", input.energyLevel(),
+                "stress_level", input.stressLevel(),
+                "soreness_level", input.sorenessLevel()
         ));
 
         DailyMetric metric = new DailyMetric();
@@ -84,6 +86,8 @@ public class FitnessController {
         metric.setSleepQuality(input.sleepQuality());
         metric.setHeartRate(input.heartRate());
         metric.setEnergyLevel(input.energyLevel());
+        metric.setStressLevel(input.stressLevel());
+        metric.setSorenessLevel(input.sorenessLevel());
 
         metric.setReadinessScore(
                 Double.valueOf(String.valueOf(readiness.get("readiness_score")))
@@ -117,11 +121,23 @@ public class FitnessController {
             String fitnessLevel = user.getFitnessLevel() != null
                     ? user.getFitnessLevel()
                     : "Beginner";
+            String fitnessGoal = user.getFitnessGoal() != null
+                    ? user.getFitnessGoal()
+                    : String.valueOf(body.getOrDefault("fitness_goal", "general_fitness"));
+            String experienceLevel = user.getExperienceLevel() != null
+                    ? user.getExperienceLevel()
+                    : String.valueOf(body.getOrDefault("experience_level", "beginner"));
+            Integer preferredDuration = user.getWorkoutDuration() != null
+                    ? user.getWorkoutDuration()
+                    : Integer.parseInt(String.valueOf(body.getOrDefault("preferred_duration", 30)));
 
             return aiClient.post("/generate-plan", Map.of(
                     "fitness_level", fitnessLevel,
                     "readiness_score", readinessScore,
-                    "previous_performance", previousPerformance
+                    "previous_performance", previousPerformance,
+                    "fitness_goal", fitnessGoal,
+                    "experience_level", experienceLevel,
+                    "preferred_duration", preferredDuration
             ));
 
         } catch (Exception e) {

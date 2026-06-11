@@ -1,11 +1,13 @@
 from pathlib import Path
 import numpy as np
 import joblib
+import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression, LinearRegression
 
 ROOT = Path(__file__).resolve().parent.parent
 MODEL_DIR = ROOT / "models"
+DATA_PATH = ROOT / "data" / "synthetic_fitness_sample.csv"
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -23,15 +25,34 @@ def train_profile_model():
 
 
 def train_readiness_model():
-    np.random.seed(7)
-    n = 700
-    sleep = np.random.randint(1, 11, n)
-    hr = np.random.randint(55, 105, n)
-    energy = np.random.randint(1, 11, n)
-    logits = -6 + 0.45 * sleep - 0.03 * hr + 0.5 * energy
-    p = 1 / (1 + np.exp(-logits))
-    y = (np.random.rand(n) < p).astype(int)
-    X = np.column_stack([sleep, hr, energy])
+    feature_cols = ["sleep_quality", "heart_rate", "energy_level", "stress_level", "soreness_level"]
+
+    if DATA_PATH.exists():
+        df = pd.read_csv(DATA_PATH)
+        X = df[feature_cols].to_numpy()
+        y = df["ready"].astype(int).to_numpy()
+    else:
+        np.random.seed(7)
+        n = 900
+        sleep = np.random.randint(1, 11, n)
+        hr = np.random.randint(55, 105, n)
+        energy = np.random.randint(1, 11, n)
+        stress = np.random.randint(1, 11, n)
+        soreness = np.random.randint(1, 11, n)
+        logits = (
+            -3.8
+            + 0.42 * sleep
+            - 0.028 * hr
+            + 0.48 * energy
+            - 0.38 * stress
+            - 0.42 * soreness
+            - np.where(soreness >= 8, 0.9, 0)
+            - np.where(stress >= 8, 0.5, 0)
+        )
+        p = 1 / (1 + np.exp(-logits))
+        y = (np.random.rand(n) < p).astype(int)
+        X = np.column_stack([sleep, hr, energy, stress, soreness])
+
     model = LogisticRegression(max_iter=500)
     model.fit(X, y)
     joblib.dump(model, MODEL_DIR / "readiness.pkl")

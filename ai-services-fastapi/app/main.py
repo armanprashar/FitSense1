@@ -40,12 +40,23 @@ class ReadinessInput(BaseModel):
     sleep_quality: int = Field(ge=1, le=10)
     heart_rate: int = Field(ge=40, le=200)
     energy_level: int = Field(ge=1, le=10)
+    stress_level: int = Field(ge=1, le=10)
+    soreness_level: int = Field(ge=1, le=10)
 
 
 class PlanInput(BaseModel):
     fitness_level: Literal["Beginner", "Intermediate", "Advanced"]
     readiness_score: float = Field(ge=0, le=1)
     previous_performance: int = Field(ge=0, le=100)
+    fitness_goal: Literal[
+        "fat_loss",
+        "muscle_gain",
+        "endurance",
+        "general_fitness",
+        "recovery_mobility"
+    ] = "general_fitness"
+    experience_level: Literal["beginner", "intermediate", "advanced"] = "beginner"
+    preferred_duration: int = Field(default=30, ge=15, le=90)
 
 
 class ProgressInput(BaseModel):
@@ -71,7 +82,13 @@ def profile(inp: ProfileInput):
 
 @app.post("/readiness")
 def readiness(inp: ReadinessInput):
-    X = np.array([[inp.sleep_quality, inp.heart_rate, inp.energy_level]])
+    X = np.array([[
+        inp.sleep_quality,
+        inp.heart_rate,
+        inp.energy_level,
+        inp.stress_level,
+        inp.soreness_level
+    ]])
     score = float(readiness_model.predict_proba(X)[0][1])
     return {"ready": score >= 0.5, "readiness_score": round(score, 3)}
 
@@ -79,21 +96,108 @@ def readiness(inp: ReadinessInput):
 
 @app.post("/generate-plan")
 def generate_plan(inp: PlanInput):
+    band = (
+        "low" if inp.readiness_score < 0.3
+        else "moderate" if inp.readiness_score < 0.6
+        else "high"
+    )
 
-    if inp.readiness_score < 0.3:
-        workout_type = "Recovery + Stretching"
+    examples_by_experience = {
+        "beginner": {
+            "cardio": ["Brisk walking", "Light cycling", "Skipping intervals", "Swimming", "Easy jogging"],
+            "strength": ["Bodyweight squats", "Wall push-ups", "Glute bridges", "Step-ups", "Plank holds"],
+            "endurance": ["Walk-jog intervals", "Cycling", "Swimming", "Incline walking", "Low-impact circuits"],
+            "mobility": ["Dynamic stretching", "Yoga flow", "Hip mobility", "Shoulder circles", "Breathing drills"]
+        },
+        "intermediate": {
+            "cardio": ["Running", "Cycling", "Brisk walking", "Skipping", "Swimming"],
+            "strength": ["Goblet squats", "Push-ups", "Dumbbell rows", "Lunges", "Romanian deadlifts"],
+            "endurance": ["Tempo runs", "Cycling intervals", "Rowing", "Swimming laps", "Hill walking"],
+            "mobility": ["Yoga flow", "Foam rolling", "Hip openers", "Thoracic rotations", "Band mobility"]
+        },
+        "advanced": {
+            "cardio": ["Interval running", "Hill sprints", "Fast cycling", "Rowing intervals", "Swimming intervals"],
+            "strength": ["Barbell squats", "Deadlifts", "Bench press", "Pull-ups", "Walking lunges"],
+            "endurance": ["Long runs", "Threshold intervals", "Bike intervals", "Rowing blocks", "Swim sets"],
+            "mobility": ["Loaded mobility", "Deep squat holds", "Cossack squats", "Shoulder mobility", "Recovery yoga"]
+        }
+    }
+
+    examples = examples_by_experience[inp.experience_level]
+
+    if band == "low":
+        low_readiness_workouts = {
+            "fat_loss": "Light Cardio Recovery",
+            "muscle_gain": "Muscle Recovery + Mobility",
+            "endurance": "Easy Aerobic Recovery",
+            "general_fitness": "Recovery + Mobility",
+            "recovery_mobility": "Deep Recovery + Flexibility"
+        }
+        workout_type = low_readiness_workouts[inp.fitness_goal]
         intensity = "low"
-        duration = 20
+        focus = "Reduce fatigue and restore movement quality."
+        example_sections = {
+            "Recovery": examples["mobility"],
+            "Light Cardio": examples["cardio"][:3]
+        }
 
-    elif inp.readiness_score < 0.6:
-        workout_type = "Cardio + Mobility"
-        intensity = "moderate"
-        duration = 35
+    elif inp.fitness_goal == "fat_loss":
+        workout_type = "Low-impact Cardio + Strength" if band == "moderate" else "Cardio + Strength Training"
+        intensity = "moderate" if band == "moderate" else "high"
+        focus = "Burn calories while preserving muscle."
+        example_sections = {
+            "Cardio": examples["cardio"],
+            "Strength": examples["strength"]
+        }
+
+    elif inp.fitness_goal == "muscle_gain":
+        workout_type = "Strength Technique + Muscle Building" if band == "moderate" else "Muscle Building Strength Plan"
+        intensity = "moderate" if band == "moderate" else "high"
+        focus = "Prioritize progressive overload, muscle tension, and controlled reps for size and strength."
+        example_sections = {
+            "Strength": examples["strength"],
+            "Hypertrophy": [
+                "Controlled squats",
+                "Chest press",
+                "Rows",
+                "Shoulder press",
+                "Split squats"
+            ]
+        }
+
+    elif inp.fitness_goal == "endurance":
+        workout_type = "Steady Cardio + Mobility" if band == "moderate" else "Endurance Training + Strength Support"
+        intensity = "moderate" if band == "moderate" else "high"
+        focus = "Improve stamina, heart fitness, and aerobic capacity."
+        example_sections = {
+            "Endurance": examples["endurance"],
+            "Strength Support": examples["strength"][:3]
+        }
+
+    elif inp.fitness_goal == "recovery_mobility":
+        workout_type = "Mobility + Recovery Strength" if band == "moderate" else "Mobility + Light Functional Training"
+        intensity = "low" if band == "moderate" else "moderate"
+        focus = "Improve movement, flexibility, and joint-friendly strength."
+        example_sections = {
+            "Mobility": examples["mobility"],
+            "Light Strength": examples["strength"][:3]
+        }
 
     else:
-        workout_type = "Strength + Conditioning"
-        intensity = "high"
-        duration = 50
+        workout_type = "Balanced Fitness Mix" if band == "moderate" else "Full Body Strength + Cardio"
+        intensity = "moderate" if band == "moderate" else "high"
+        focus = "Build a balanced mix of strength, stamina, and mobility."
+        example_sections = {
+            "Cardio": examples["cardio"][:4],
+            "Strength": examples["strength"][:4],
+            "Mobility": examples["mobility"][:3]
+        }
+
+    duration = inp.preferred_duration
+    if band == "low":
+        duration = min(duration, 25)
+    elif band == "high":
+        duration = max(duration, 35)
 
     # Modify based on performance
     if inp.previous_performance < 50:
@@ -101,16 +205,18 @@ def generate_plan(inp: PlanInput):
     elif inp.previous_performance > 85:
         duration += 10
 
-    # Small variation using fitness level
-    if inp.fitness_level == "Beginner":
+    # Small variation using saved workout experience
+    if inp.experience_level == "beginner" or inp.fitness_level == "Beginner":
         duration -= 5
-    elif inp.fitness_level == "Advanced":
+    elif inp.experience_level == "advanced" or inp.fitness_level == "Advanced":
         duration += 5
 
     return {
         "workout_type": workout_type,
         "intensity": intensity,
-        "duration_minutes": max(15, duration)
+        "duration_minutes": max(15, duration),
+        "focus": focus,
+        "examples": example_sections
     }
 
 
