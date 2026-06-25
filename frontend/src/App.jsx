@@ -915,7 +915,7 @@ export default function App() {
                     <h2 className="mt-2 text-3xl font-black tracking-tight text-white">Biometric check-in</h2>
                   </div>
                   <button onClick={submitDaily} className="rounded-2xl bg-white px-5 py-3 text-sm font-black uppercase tracking-[0.14em] text-zinc-950 transition hover:bg-cyan-100">
-                    Analyze day
+                    Generate Plan
                   </button>
                 </div>
 
