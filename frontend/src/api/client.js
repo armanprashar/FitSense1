@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "http://localhost:8080"
+  baseURL: "https://airy-friendship-production-617b.up.railway.app"
 });
 
 export const setAuthToken = (token) => {
